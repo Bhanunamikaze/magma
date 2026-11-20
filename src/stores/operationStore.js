@@ -11,31 +11,54 @@ export const useOperationStore = defineStore("operationStore", {
     };
   },
   getters: {
+    // Only returns the operation once its full record (with chain) is loaded.
+    // The list view holds lightweight metadata entries without a chain.
     currentOperation(state) {
-      return state.operations[state.selectedOperationID];
+      const op = state.operations[state.selectedOperationID];
+      return op && op.chain ? op : undefined;
     },
   },
   actions: {
+    // Fetch lightweight metadata for every operation (no chains). Fully
+    // loaded operations already in the store are kept as-is; the selected
+    // one is refreshed separately via getOperation().
     async getOperations($api) {
       try {
-        const response = await $api.get("/api/v2/operations");
-        // TODO: Sort operations
-        for (const operation of response.data) {
-          this.operations[operation.id] = operation;
+        const response = await $api.get("/api/v2/operations/metadata");
+        // Mutate in place (not reassign) so watchers holding a reference to
+        // this.operations, e.g. OperationChartStatus, keep working.
+        const seen = new Set();
+        for (const meta of response.data) {
+          seen.add(meta.id);
+          const existing = this.operations[meta.id];
+          if (existing && existing.chain) {
+            existing.state = meta.state;
+            existing.finish = meta.finish;
+          } else {
+            this.operations[meta.id] = meta;
+          }
+        }
+        for (const id of Object.keys(this.operations)) {
+          if (!seen.has(id)) delete this.operations[id];
         }
       } catch (error) {
         console.error("Error fetching operations", error);
       }
     },
+    // Fetch the full record (chain, host_group, source...) for one operation.
     async getOperation($api, operationID) {
-        try {
-          const response = await $api.get(`/api/v2/operations/${operationID}`);
-          let operation = response.data;
-          this.operations[operation.id] = operation;
-        } catch (error) {
-          console.error("Error fetching operations", error);
-        }
-      },
+      if (!operationID) return;
+      try {
+        const response = await $api.get(`/api/v2/operations/${operationID}`);
+        const operation = response.data;
+        this.operations[operation.id] = operation;
+      } catch (error) {
+        console.error("Error fetching operation", error);
+      }
+    },
+    async refreshSelectedOperation($api) {
+      await this.getOperation($api, this.selectedOperationID);
+    },
     async createOperation($api, operation) {
       try {
         const response = await $api.post("/api/v2/operations", operation);
@@ -63,7 +86,7 @@ export const useOperationStore = defineStore("operationStore", {
         if (this.selectedOperationID != response.data.id) {
           return;
         }
-        operations[this.selectedOperationID] = response.data;
+        this.operations[this.selectedOperationID] = response.data;
       } catch (error) {
         console.error("Error updating operation chain", error);
       }
@@ -76,7 +99,7 @@ export const useOperationStore = defineStore("operationStore", {
           `/api/v2/operations/${this.selectedOperationID}`,
           newOperation
         );
-        this.getOperations($api);
+        await this.refreshSelectedOperation($api);
       } catch (error) {
         console.error("Error updating operation", error);
       }
@@ -97,6 +120,7 @@ export const useOperationStore = defineStore("operationStore", {
         : `${newOp.name} ${date}`;
       try {
         const response = await $api.post("/api/v2/operations", newOp);
+        this.operations[response.data.id] = response.data;
         this.selectedOperationID = response.data.id;
         this.getOperations($api);
       } catch (error) {
@@ -127,7 +151,7 @@ export const useOperationStore = defineStore("operationStore", {
           `/api/v2/operations/${this.selectedOperationID}/links/${currentLink.id}`,
           updatedLink
         );
-        await this.getOperations($api);
+        await this.refreshSelectedOperation($api);
         return response.data;
       } catch (error) {
         console.error("Error updating link state", error);
@@ -139,7 +163,7 @@ export const useOperationStore = defineStore("operationStore", {
           `/api/v2/operations/${this.selectedOperationID}/potential-links`,
           manualCommand
         );
-        await this.getOperations($api);
+        await this.refreshSelectedOperation($api);
         return response.data;
       } catch (error) {
         console.error("Error adding manual command", error);
@@ -153,7 +177,7 @@ export const useOperationStore = defineStore("operationStore", {
             link
           );
         }
-        await this.getOperations($api);
+        await this.refreshSelectedOperation($api);
       } catch (error) {
         console.error("Error adding potential links", error);
       }
@@ -164,7 +188,7 @@ export const useOperationStore = defineStore("operationStore", {
           `/api/v2/operations/${this.selectedOperationID}/potential-links`,
           link
         );
-        await this.getOperations($api);
+        await this.refreshSelectedOperation($api);
       } catch (error) {
         console.error("Error rerunning link", error);
       }
