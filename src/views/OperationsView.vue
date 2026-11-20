@@ -96,7 +96,7 @@ const updatePossibleFilters = (chain) => {
 };
 
 const filteredChain = computed(() => {
-  let result = [...operationStore.currentOperation.chain];
+  let result = [...(operationStore.currentOperation?.chain || [])];
   updatePossibleFilters(result);
   // Filter the data
   if (tableFilter.filters) {
@@ -195,13 +195,15 @@ const resetFilter = () => {
   tableFilter.filters.pid = [];
 };
 
-function selectOperation() {
+async function selectOperation() {
   if (updateInterval) clearInterval(updateInterval);
   if (operationStore.selectedOperationID === "") return;
   resetFilter();
+  // The list only holds metadata; pull the full operation on open.
+  await operationStore.getOperation($api, operationStore.selectedOperationID);
   updateInterval = setInterval(async () => {
     if (operationStore.selectedOperationID !== "" &&
-        operationStore.operations[operationStore.selectedOperationID].state !== "finished")
+        operationStore.operations[operationStore.selectedOperationID]?.state !== "finished")
     {
       await operationStore.getOperation($api, operationStore.selectedOperationID);
     } else {
@@ -280,13 +282,13 @@ function handleViewOutput(link) {
                 .select
                     select.has-text-centered(v-model="operationStore.selectedOperationID" @change="selectOperation()")
                         option(disabled selected value="") Select an operation 
-                        option(v-for="operation in operationStore.operations" :key="operation.id" :value="operation.id") {{ `${operation.name} - ${operation.chain.length} decisions | ${getHumanFriendlyTimeISO8601(operation.start)}` }}
+                        option(v-for="operation in operationStore.operations" :key="operation.id" :value="operation.id") {{ `${operation.name} - ${operation.chain ? operation.chain.length : operation.chain_length} decisions | ${getHumanFriendlyTimeISO8601(operation.start)}` }}
             button.button.is-primary.mr-2(@click="modals.operations.showCreate = true" type="button") 
                 span.icon
                     font-awesome-icon(icon="fas fa-plus") 
                 span New Operation
     .column.is-4.m-0
-        .buttons.is-justify-content-right(v-if="operationStore.operations[operationStore.selectedOperationID]")
+        .buttons.is-justify-content-right(v-if="operationStore.currentOperation")
             button.button.mr-2(@click="modals.operations.showDownload = true" type="button")
                 span.icon
                     font-awesome-icon(icon="fas fa-save")
@@ -299,7 +301,8 @@ hr.mt-2
 
 Graph(@scroll="highlightLink")
 //- Control Panel
-.control-panel.p-0.mb-4(v-if="operationStore.selectedOperationID")
+p.has-text-centered.mb-4(v-if="operationStore.selectedOperationID && !operationStore.currentOperation") Loading operation...
+.control-panel.p-0.mb-4(v-if="operationStore.currentOperation")
     .columns.m-0.p-1
         .column.is-4.pt-0.pb-0.is-flex
             .buttons
@@ -358,7 +361,7 @@ Graph(@scroll="highlightLink")
                 label.label(for="switchManual") {{ operationStore.operations[operationStore.selectedOperationID].autonomous ? 'Autonomous' : 'Manual' }}
         
 //- Table
-table.table.is-fullwidth.is-narrow.is-striped.mb-8#link-table(v-if="operationStore.selectedOperationID")
+table.table.is-fullwidth.is-narrow.is-striped.mb-8#link-table(v-if="operationStore.currentOperation")
     thead
         tr
           th

@@ -61,10 +61,11 @@ const buildGraph = async () => {
     // TODO: Change to actual api endpoint
     try {
       // const graphData = graphDataUrl;
-      const operationsSummary = await $api.get("/api/v2/operations/summary");
-      const graphData = operationsSummary.data.find(
-        (operation) => operation.id === operationStore.currentOperation.id
+      // Per-operation summary; avoids serializing every operation's chain.
+      const summaryResponse = await $api.get(
+        `/api/v2/operations/${operationStore.currentOperation.id}/summary`
       );
+      const graphData = summaryResponse.data;
       if (!graphData) {
         console.error("Could not find operation graph data");
         return;
@@ -190,7 +191,7 @@ watch(
 );
 
 const previousHostActions = computed(() => {
-  if (!operationStore.selectedOperationID || !selectedNodeId) return [];
+  if (!operationStore.currentOperation || !selectedNodeId) return [];
   const previousHostActions = [];
   let curLinkIndex = operationStore.currentOperation.chain.length - 1;
   while (previousHostActions.length < 3 && curLinkIndex >= 0) {
@@ -236,7 +237,7 @@ const getAgentTooltipContent = (agent) => {
 </script>
 
 <template lang="pug">
-.graph-wrapper(v-if="operationStore.selectedOperationID")
+.graph-wrapper(v-if="operationStore.currentOperation")
   .graph-header.is-fullwidth.is-flex.is-flex-direction-row.is-align-items-center.is-justify-content-space-between(@click="isGraphOpen = !isGraphOpen")
     .left-graph-header.is-flex.is-flex-direction-row.is-align-items-center.is-3
       h3 {{operationStore.currentOperation.name}}
